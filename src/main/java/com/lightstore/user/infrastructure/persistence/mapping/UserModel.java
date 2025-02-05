@@ -13,7 +13,7 @@ import lombok.ToString;
 @ToString
 @Entity
 @Table(name = "user")
-public class UserTable {
+public class UserModel {
     @Id @GeneratedValue(strategy= GenerationType.IDENTITY)
     private Long id;
     @Column(name = "user_id")

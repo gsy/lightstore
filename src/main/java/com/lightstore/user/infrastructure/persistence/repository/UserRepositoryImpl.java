@@ -2,7 +2,7 @@ package com.lightstore.user.infrastructure.persistence.repository;
 
 import com.lightstore.user.domain.entity.User;
 import com.lightstore.user.domain.entity.UserRepository;
-import com.lightstore.user.infrastructure.persistence.mapping.UserTable;
+import com.lightstore.user.infrastructure.persistence.mapping.UserModel;
 import org.springframework.stereotype.Repository;
 
 
@@ -17,10 +17,10 @@ public class UserRepositoryImpl implements UserRepository {
 
     @Override
     public User save(User user) {
-        final UserTable obj = new UserTable();
-        obj.setUserID(user.id().id);
-        obj.setUsername(user.getUsername());
-        UserTable saved = impl.save(obj);
+        final UserModel model = new UserModel();
+        model.setUserID(user.id().id);
+        model.setUsername(user.getUsername());
+        UserModel saved = impl.save(model);
         return user;
     }
 }
