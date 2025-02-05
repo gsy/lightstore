@@ -25,6 +25,7 @@ public class UserRegistrationHandler implements CommandHandler<RegisterUser, Use
     @Override
     public Either<CommandFailure, UserRegistered> handle(RegisterUser command, UserID entityID) {
         User user = new User(applicationContext, entityID);
+        user.setUsername(command.getUsername());
         repository.save(user);
         UserRegistered event = UserRegistered.eventOf(
                 entityID,

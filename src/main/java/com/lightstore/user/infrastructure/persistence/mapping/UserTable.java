@@ -1,9 +1,7 @@
 package com.lightstore.user.infrastructure.persistence.mapping;
 
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -14,10 +12,11 @@ import lombok.ToString;
 @Setter
 @ToString
 @Entity
-@Table
+@Table(name = "user")
 public class UserTable {
-    @Id
-    private Integer id;
+    @Id @GeneratedValue(strategy= GenerationType.IDENTITY)
+    private Long id;
+    @Column(name = "user_id")
     private String userID;
     private String username;
 }

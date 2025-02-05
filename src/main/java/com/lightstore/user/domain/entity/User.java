@@ -4,10 +4,14 @@ import com.lightstore.user.domain.command.RegisterUser;
 import com.lightstore.user.domain.command.handler.UserRegistrationHandler;
 import com.lightstore.user.domain.shared.AggregateRoot;
 import com.lightstore.user.domain.vo.UserID;
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.context.ApplicationContext;
 
 
 public class User extends AggregateRoot<User, UserID> {
+    @Getter
+    @Setter
     private String username;
 
     public User(ApplicationContext applicationContext) {

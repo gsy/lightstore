@@ -18,9 +18,8 @@ public class UserRepositoryImpl implements UserRepository {
     @Override
     public User save(User user) {
         final UserTable obj = new UserTable();
-        obj.setId(1);
-        obj.setUserID(user.id().toString());
-        obj.setUsername("cxg");
+        obj.setUserID(user.id().id);
+        obj.setUsername(user.getUsername());
         UserTable saved = impl.save(obj);
         return user;
     }

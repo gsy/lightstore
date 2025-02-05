@@ -3,9 +3,8 @@ package com.lightstore.user.domain.vo;
 import com.lightstore.user.domain.shared.RandomUUID;
 
 public class UserID extends RandomUUID {
-
     public UserID() {
-        super();
+            super();
     }
 
     public UserID(String id) {
@@ -14,6 +13,6 @@ public class UserID extends RandomUUID {
 
     @Override
     protected String getPrefix() {
-        return "UID-%s";
+        return "%s";
     }
 }

@@ -6,10 +6,10 @@ import lombok.Getter;
 import lombok.Value;
 
 
+@Getter
 @Value(staticConstructor = "eventOf")
 public class UserRegistered implements UserEvent {
     private final UserID userID;
-    @Getter
     private final String username;
 
     @Override
