@@ -49,35 +49,108 @@ but is depended on by nothing inside.
 
 Two valid structures are commonly used. Choose based on team preference and project size.
 
-### Structure
+### Structure: Modular Bounded Contexts
 
-Inspired by [Three Dots Labs Clean Architecture](https://threedots.tech/post/introducing-clean-architecture/):
+For services with multiple bounded contexts, organize by context rather than layer:
 
 ```
 my-service/
 ├── cmd/
 │   └── server/
-│       └── main.go
+│       └── main.go                   # Wiring & bootstrap
 ├── internal/
-│   ├── domain/                      # Pure business rules (optional for CRUD)
-│   │   └── training/
-│   │       └── training.go
-│   ├── app/                         # Application services (orchestration)
-│   │   └── training_service.go      # Defines interfaces locally + orchestrates
-│   ├── adapters/                    # External integrations (implements interfaces)
-│   │   ├── training_firestore.go    # DB adapter
-│   │   ├── trainer_grpc.go          # External service client
-│   │   └── users_grpc.go
-│   └── ports/                       # Entry points (HTTP, gRPC, CLI)
-│       ├── http.go                  # HTTP handlers
-│       └── grpc.go
+│   ├── shared/                       # SHARED KERNEL
+│   │   ├── valueobjects/             # Money, Weight, strongly-typed IDs
+│   │   ├── events/                   # DomainEvent interface, BaseEvent
+│   │   ├── policy/                   # Shared business policies
+│   │   └── errors/                   # Shared domain errors
+│   │
+│   ├── catalog/                      # CATALOG BOUNDED CONTEXT
+│   │   ├── domain/                   # SKU aggregate, repository port
+│   │   │   ├── sku.go                # Aggregate root
+│   │   │   ├── repository.go         # Repository interface
+│   │   │   ├── events.go             # Domain events
+│   │   │   └── errors.go             # Domain errors
+│   │   ├── app/                      # Use cases (flat, one file per use case)
+│   │   │   ├── create_sku.go         # CreateSKUHandler + Command + Result
+│   │   │   └── queries.go            # SKUQueryService
+│   │   ├── infra/                    # Infrastructure adapters
+│   │   │   ├── postgres_repo.go      # Repository implementation
+│   │   │   ├── http_handler.go       # HTTP handlers
+│   │   │   └── routes.go             # Route registration
+│   │   └── api/                      # PUBLIC API for other contexts
+│   │       └── reader.go             # SKUReader interface + SKUView DTO
+│   │
+│   ├── device/                       # DEVICE BOUNDED CONTEXT
+│   │   ├── domain/
+│   │   ├── app/
+│   │   ├── infra/
+│   │   └── api/                      # DeviceReader interface + DeviceView DTO
+│   │
+│   ├── transaction/                  # TRANSACTION BOUNDED CONTEXT
+│   │   ├── domain/                   # Session aggregate, DetectedItem VO
+│   │   ├── app/
+│   │   │   ├── ports/                # Cross-context port interfaces
+│   │   │   │   ├── device_reader.go  # What we need from Device context
+│   │   │   │   └── catalog_reader.go # What we need from Catalog context
+│   │   │   ├── start_session.go
+│   │   │   ├── submit_detection.go
+│   │   │   └── queries.go
+│   │   ├── infra/
+│   │   │   ├── adapters/             # Implements app/ports using other APIs
+│   │   │   │   ├── device_adapter.go
+│   │   │   │   └── catalog_adapter.go
+│   │   │   ├── postgres_repo.go
+│   │   │   └── http_handler.go
+│   │   └── api/                      # SessionReader interface
+│   │
+│   ├── platform/                     # SHARED INFRASTRUCTURE
+│   │   ├── http/                     # Router (composes all context routes)
+│   │   ├── postgres/                 # Migrations
+│   │   └── messaging/                # Event publisher
+│   │
+│   └── pkg/                          # Shared utilities
+│       └── logger/
 └── go.mod
 ```
 
-- **`ports/`** contains entry points (HTTP handlers, gRPC servers, CLI commands)
-- **`adapters/`** contains all external integrations (databases, HTTP clients, message queues)
-- **`app/`** defines interfaces *locally* in the service file that needs them
-- Flatter hierarchy suits smaller bounded contexts
+**Key principles for modular structure:**
+
+- Each bounded context is self-contained with its own domain/app/infra layers
+- Cross-context communication only through `api/` packages (never import another context's domain or infra)
+- Consumer-defined ports: Transaction defines what it needs from Device/Catalog in `app/ports/`
+- Adapters in `infra/adapters/` implement those ports using the other context's `api/` interfaces
+
+### Cross-Context Communication Pattern
+
+```
+Transaction Context                    Device Context
+┌─────────────────────────────┐       ┌─────────────────────────────┐
+│ app/ports/device_reader.go  │       │ api/reader.go               │
+│ ┌─────────────────────────┐ │       │ ┌─────────────────────────┐ │
+│ │ type DeviceReader       │ │       │ │ type DeviceReader       │ │
+│ │ interface {             │ │       │ │ interface {             │ │
+│ │   FindByMachineID(...)  │ │       │ │   FindByMachineID(...)  │ │
+│ │ }                       │ │       │ │ }                       │ │
+│ └─────────────────────────┘ │       │ └─────────────────────────┘ │
+│                             │       │                             │
+│ infra/adapters/             │       │ + DeviceReaderAdapter       │
+│ device_adapter.go           │──────>│   (implements interface)    │
+│ (implements port using API) │       │                             │
+└─────────────────────────────┘       └─────────────────────────────┘
+```
+
+**Wiring in main.go:**
+
+```go
+// Device context
+deviceRepo := deviceinfra.NewPostgresDeviceRepository(pool)
+deviceReader := deviceapi.NewDeviceReaderAdapter(deviceRepo)  // Exposes API
+
+// Transaction context (uses Device's API via adapter)
+deviceAdapter := transactionadapters.NewDeviceAdapter(deviceReader)
+startSessionHandler := transactionapp.NewStartSessionHandler(deviceAdapter, ...)
+```
 
 ---
 
@@ -95,11 +168,15 @@ my-service/
 | **Output Port** | `application/ports/` or local | Interface for side-effects (events, email, SMS…) |
 | **Adapter** | `infrastructure/` or `adapters/` | Implements port interfaces (DB, HTTP clients, queues) |
 | **Entry Point (Port)** | `infrastructure/http` or `ports/` | Translates protocol → application command/query |
+| **Cross-Context Port** | `<context>/app/ports/` | Interface for reading from other bounded contexts |
+| **Cross-Context Adapter** | `<context>/infra/adapters/` | Implements cross-context port using another context's API |
+| **Context API** | `<context>/api/` | Public read interface + DTOs exposed to other contexts |
 
 **Ports vs Adapters clarification:**
 - **Port** = interface (what you need) — defined by the consumer
 - **Adapter** = implementation (how you get it) — implements the port
 - In threedots terminology: "Ports" folder contains *entry points* (HTTP handlers), "Adapters" folder contains *external integrations* (DB repos, clients)
+- For cross-context: Consumer context defines ports in `app/ports/`, implements them in `infra/adapters/` using provider's `api/`
 
 Read `references/ddd-patterns.md` for complete annotated Go code for each pattern.
 Read `references/testing-patterns.md` for layer-specific testing strategies and examples.
@@ -240,8 +317,11 @@ through business logic, and domain types stay free of infrastructure concerns.
 | Use case handler | `<Verb><Noun>Handler` | `PlaceOrderHandler` |
 | Command DTO | `<Verb><Noun>Command` | `PlaceOrderCommand` |
 | Domain event | past tense | `OrderPlaced`, `PaymentFailed` |
-| Infrastructure repo | `<Provider><Noun>Repository` | `PostgresOrderRepository` |
+| Infrastructure repo | `Postgres<Noun>Repository` | `PostgresOrderRepository` |
 | Output port | `<Noun>Publisher/Notifier` | `EventPublisher`, `CustomerNotifier` |
+| Cross-context port | `<Noun>Reader` | `DeviceReader`, `CatalogReader` |
+| Cross-context adapter | `<Noun>Adapter` | `DeviceAdapter`, `CatalogAdapter` |
+| Cross-context DTO | `<Noun>Info` or `<Noun>View` | `DeviceInfo`, `SKUView` |
 
 ---
 
@@ -255,6 +335,9 @@ through business logic, and domain types stay free of infrastructure concerns.
 - **Fat use cases** — a handler with 8 injected dependencies is doing too much. Split it.
 - **Skipping the Repository interface** — always define the interface in the domain, even if you
   only have one implementation. It makes the domain testable without a database.
+- **Direct cross-context imports** — never import another context's `domain/` or `infra/`. Use `api/` only.
+- **Leaking domain types across contexts** — each context should define its own DTOs for cross-context reads.
+- **Bidirectional context dependencies** — if A depends on B and B depends on A, refactor to extract shared concepts.
 
 ---
 

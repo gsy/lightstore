@@ -48,74 +48,105 @@ pio device monitor      # Serial monitor (115200 baud)
 2. **Backend Server** (`server/`) - Go/Gin REST API, PostgreSQL, DDD hexagonal architecture
 3. **Mobile App** (external) - Customer-facing app for QR scanning, payment, refunds
 
-### Backend DDD Hexagonal Architecture
+### Backend DDD Modular Architecture
 
-The backend follows Domain-Driven Design with Hexagonal Architecture (Ports & Adapters):
+The backend follows Domain-Driven Design with modular bounded contexts. Each context is self-contained with its own domain, application, and infrastructure layers:
 
 ```
 server/
 ├── cmd/server/main.go                    # Wiring & bootstrap
 └── internal/
-    ├── domain/                           # INNER CORE - Business logic
-    │   ├── beverage/                     # Beverage aggregate
-    │   │   ├── aggregate.go              # Aggregate root
-    │   │   ├── events.go                 # Domain events
-    │   │   ├── errors.go                 # Domain errors
-    │   │   └── repository.go             # Repository PORT (interface)
-    │   ├── device/                       # Device aggregate
-    │   ├── session/                      # Session aggregate
-    │   └── shared/                       # Shared value objects
-    │       └── value_objects.go          # Money, Weight, IDs
+    ├── shared/                           # SHARED KERNEL
+    │   ├── valueobjects/                 # Money, Weight, IDs
+    │   ├── events/                       # DomainEvent interface, BaseEvent
+    │   ├── policy/                       # DetectionPolicy
+    │   └── errors/                       # Shared domain errors
     │
-    ├── application/                      # MIDDLE RING - Use cases
-    │   ├── ports/                        # Output port interfaces
-    │   │   ├── event_publisher.go
-    │   │   └── ml_service.go
-    │   ├── createbeverage/               # Use case: Create beverage
-    │   │   ├── command.go                # Input DTO
-    │   │   └── handler.go                # Use case handler
-    │   ├── registerdevice/               # Use case: Register device
-    │   ├── startsession/                 # Use case: Start session
-    │   └── submitdetection/              # Use case: Submit detection
+    ├── catalog/                          # CATALOG BOUNDED CONTEXT
+    │   ├── domain/                       # SKU aggregate, repository port
+    │   ├── app/                          # CreateSKU use case, queries
+    │   ├── infra/                        # Postgres repo, HTTP handlers
+    │   └── api/                          # SKUReader interface for cross-context reads
     │
-    └── infrastructure/                   # OUTER RING - Adapters
-        ├── persistence/postgres/         # Repository adapters
-        │   ├── beverage_repo.go
-        │   ├── device_repo.go
-        │   ├── session_repo.go
-        │   └── migrations.go
-        ├── http/                         # HTTP adapters
-        │   ├── server.go                 # Router setup
-        │   └── handlers/                 # HTTP handlers
-        └── messaging/                    # Event publisher adapters
-            └── noop_publisher.go
+    ├── device/                           # DEVICE BOUNDED CONTEXT
+    │   ├── domain/                       # Device aggregate, repository port
+    │   ├── app/                          # RegisterDevice use case, queries
+    │   ├── infra/                        # Postgres repo, HTTP handlers
+    │   └── api/                          # DeviceReader interface for cross-context reads
+    │
+    ├── transaction/                      # TRANSACTION BOUNDED CONTEXT
+    │   ├── domain/                       # Session aggregate, DetectedItem VO
+    │   ├── app/                          # StartSession, SubmitDetection, etc.
+    │   │   └── ports/                    # Interfaces for cross-context deps
+    │   ├── infra/
+    │   │   └── adapters/                 # Implements ports using other APIs
+    │   └── api/                          # SessionReader interface
+    │
+    ├── platform/                         # SHARED INFRASTRUCTURE
+    │   ├── http/                         # Router (composes all context routes)
+    │   ├── postgres/                     # Migrations
+    │   └── messaging/                    # Event publisher
+    │
+    └── pkg/                              # Shared utilities
+        └── logger/
+```
+
+### Bounded Contexts
+
+| Context | Responsibility | Aggregates |
+|---------|---------------|------------|
+| **Catalog** | Product/SKU management | SKU |
+| **Device** | Vending machine registration | Device |
+| **Transaction** | Customer session workflow | Session |
+
+### Cross-Context Communication
+
+Transaction context reads from Catalog and Device contexts via their `api/` packages:
+
+```
+Transaction Context
+    │
+    ├──[DeviceReader port]──> Device Context API (DeviceReader interface)
+    │
+    └──[CatalogReader port]──> Catalog Context API (SKUReader interface)
 ```
 
 ### Dependency Rule
 
-Dependencies always point inward:
-- **Domain** knows nothing about application or infrastructure
-- **Application** knows domain but not infrastructure
-- **Infrastructure** depends on both but is depended on by nothing inside
+Dependencies always point inward within each context:
+- **domain/** knows nothing about app or infra
+- **app/** knows domain but not infra
+- **infra/** depends on both but is depended on by nothing inside
+
+Cross-context communication only through `api/` packages (never import another context's domain or infra).
 
 ### Key Patterns
 
 | Pattern | Location | Purpose |
 |---------|----------|---------|
-| Aggregate Root | `domain/*/aggregate.go` | Consistency boundary, owns mutations |
-| Value Object | `domain/shared/` | Immutable, value-based equality (Money, Weight, IDs) |
-| Repository Port | `domain/*/repository.go` | Interface defined by domain |
-| Repository Adapter | `infrastructure/persistence/` | Implements domain interface |
-| Use Case Handler | `application/*/handler.go` | Orchestrates: load → mutate → save → publish |
-| Domain Event | `domain/*/events.go` | Immutable facts, past-tense names |
+| Aggregate Root | `<context>/domain/*.go` | Consistency boundary, owns mutations |
+| Value Object | `shared/valueobjects/` | Immutable, value-based equality |
+| Repository Port | `<context>/domain/repository.go` | Interface defined by domain |
+| Repository Adapter | `<context>/infra/postgres_repo.go` | Implements domain interface |
+| Use Case Handler | `<context>/app/*.go` | Orchestrates: load → mutate → save → publish |
+| Domain Event | `<context>/domain/events.go` | Immutable facts, past-tense names |
+| Cross-Context Port | `<context>/app/ports/*.go` | Interface for reading from other contexts |
+| Cross-Context Adapter | `<context>/infra/adapters/*.go` | Implements port using other context's API |
 
 ### Key API Endpoints
 
-- `POST /api/v1/device/register` - Register ESP32 device
-- `POST /api/v1/device/detection` - Submit detection results
-- `POST /api/v1/session/start` - Start session via QR code (machine_id)
-- `POST /api/v1/session/:id/confirm` - Confirm purchase
-- `POST /api/v1/beverages` - Create beverage (admin)
+| Method | Path | Context | Description |
+|--------|------|---------|-------------|
+| POST | `/api/v1/skus` | Catalog | Create SKU (admin) |
+| GET | `/api/v1/skus` | Catalog | List all SKUs |
+| GET | `/api/v1/skus/:id` | Catalog | Get SKU by ID |
+| POST | `/api/v1/device/register` | Device | Register ESP32 device |
+| GET | `/api/v1/device/skus` | Device | Get active SKUs (for device sync) |
+| POST | `/api/v1/device/detection` | Transaction | Submit detection results |
+| POST | `/api/v1/session/start` | Transaction | Start session via QR code |
+| GET | `/api/v1/session/:id` | Transaction | Get session details |
+| POST | `/api/v1/session/:id/confirm` | Transaction | Confirm purchase |
+| POST | `/api/v1/session/:id/cancel` | Transaction | Cancel session |
 
 ### Recognition Flow
 

@@ -11,14 +11,27 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/vending-machine/server/internal/application/createsku"
-	"github.com/vending-machine/server/internal/application/registerdevice"
-	"github.com/vending-machine/server/internal/application/startsession"
-	"github.com/vending-machine/server/internal/application/submitdetection"
-	httpserver "github.com/vending-machine/server/internal/infrastructure/http"
-	"github.com/vending-machine/server/internal/infrastructure/http/handlers"
-	"github.com/vending-machine/server/internal/infrastructure/messaging"
-	"github.com/vending-machine/server/internal/infrastructure/persistence/postgres"
+	// Catalog context
+	catalogapi "github.com/vending-machine/server/internal/catalog/api"
+	catalogapp "github.com/vending-machine/server/internal/catalog/app"
+	cataloginfra "github.com/vending-machine/server/internal/catalog/infra"
+
+	// Device context
+	deviceapi "github.com/vending-machine/server/internal/device/api"
+	deviceapp "github.com/vending-machine/server/internal/device/app"
+	deviceinfra "github.com/vending-machine/server/internal/device/infra"
+
+	// Transaction context
+	transactionapp "github.com/vending-machine/server/internal/transaction/app"
+	transactioninfra "github.com/vending-machine/server/internal/transaction/infra"
+	transactionadapters "github.com/vending-machine/server/internal/transaction/infra/adapters"
+
+	// Platform
+	platformhttp "github.com/vending-machine/server/internal/platform/http"
+	"github.com/vending-machine/server/internal/platform/messaging"
+	"github.com/vending-machine/server/internal/platform/postgres"
+
+	// Shared
 	"github.com/vending-machine/server/internal/pkg/logger"
 )
 
@@ -26,7 +39,7 @@ func main() {
 	// Setup logging
 	logger.Init(logger.WithLevel(slog.LevelDebug))
 
-	logger.Info("Starting Vending Machine Server (DDD Architecture)")
+	logger.Info("Starting Vending Machine Server (Modular DDD Architecture)")
 
 	// Load config
 	port := getEnv("PORT", "8080")
@@ -50,41 +63,81 @@ func main() {
 	}
 
 	// =========================================================================
-	// Infrastructure Layer - Adapters
+	// Shared Infrastructure
 	// =========================================================================
 
-	// Repository adapters (implement domain interfaces)
-	skuRepo := postgres.NewPostgresSKURepository(pool)
-	deviceRepo := postgres.NewPostgresDeviceRepository(pool)
-	sessionRepo := postgres.NewPostgresSessionRepository(pool)
-
-	// Output port adapters
 	eventPublisher := messaging.NewNoOpEventPublisher()
 
 	// =========================================================================
-	// Application Layer - Use Cases
+	// Catalog Bounded Context
 	// =========================================================================
 
-	createSKUHandler := createsku.NewHandler(skuRepo, eventPublisher)
-	registerDeviceHandler := registerdevice.NewHandler(deviceRepo, eventPublisher)
-	startSessionHandler := startsession.NewHandler(deviceRepo, sessionRepo, eventPublisher)
-	submitDetectionHandler := submitdetection.NewHandler(sessionRepo, skuRepo, eventPublisher)
+	// Infrastructure layer
+	skuRepo := cataloginfra.NewPostgresSKURepository(pool)
+
+	// API layer (cross-context communication)
+	skuReader := catalogapi.NewSKUReaderAdapter(skuRepo)
+
+	// Application layer
+	createSKUHandler := catalogapp.NewCreateSKUHandler(skuRepo, eventPublisher)
+	skuQueryService := catalogapp.NewSKUQueryService(skuRepo)
+
+	// HTTP handler
+	catalogHandler := cataloginfra.NewHTTPHandler(createSKUHandler, skuQueryService)
 
 	// =========================================================================
-	// Interface Layer - HTTP Handlers
+	// Device Bounded Context
 	// =========================================================================
 
-	skuHandler := handlers.NewSKUHandler(createSKUHandler, skuRepo)
-	deviceHandler := handlers.NewDeviceHandler(registerDeviceHandler, submitDetectionHandler, skuRepo)
-	sessionHandler := handlers.NewSessionHandler(startSessionHandler, sessionRepo)
+	// Infrastructure layer
+	deviceRepo := deviceinfra.NewPostgresDeviceRepository(pool)
 
-	// Create router
-	router := httpserver.NewRouter(skuHandler, deviceHandler, sessionHandler)
+	// API layer (cross-context communication)
+	deviceReader := deviceapi.NewDeviceReaderAdapter(deviceRepo)
+
+	// Application layer
+	registerDeviceHandler := deviceapp.NewRegisterDeviceHandler(deviceRepo, eventPublisher)
+
+	// HTTP handler (with cross-context SKU reader)
+	deviceHandler := deviceinfra.NewHTTPHandler(registerDeviceHandler, skuReader)
+
+	// =========================================================================
+	// Transaction Bounded Context
+	// =========================================================================
+
+	// Infrastructure layer
+	sessionRepo := transactioninfra.NewPostgresSessionRepository(pool)
+
+	// Cross-context adapters (implements transaction's ports using other contexts' APIs)
+	deviceAdapter := transactionadapters.NewDeviceAdapter(deviceReader)
+	catalogAdapter := transactionadapters.NewCatalogAdapter(skuReader)
+
+	// Application layer
+	startSessionHandler := transactionapp.NewStartSessionHandler(deviceAdapter, sessionRepo, eventPublisher)
+	submitDetectionHandler := transactionapp.NewSubmitDetectionHandler(sessionRepo, catalogAdapter, eventPublisher)
+	confirmSessionHandler := transactionapp.NewConfirmSessionHandler(sessionRepo, eventPublisher)
+	cancelSessionHandler := transactionapp.NewCancelSessionHandler(sessionRepo, eventPublisher)
+	sessionQueryService := transactionapp.NewSessionQueryService(sessionRepo)
+
+	// HTTP handler
+	transactionHandler := transactioninfra.NewHTTPHandler(
+		startSessionHandler,
+		submitDetectionHandler,
+		confirmSessionHandler,
+		cancelSessionHandler,
+		sessionQueryService,
+	)
+
+	// =========================================================================
+	// HTTP Router (composes all context routes)
+	// =========================================================================
+
+	router := platformhttp.NewRouter(catalogHandler, deviceHandler, transactionHandler)
 
 	// Create server
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      router,
+		Handler:      router.Engine(),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
