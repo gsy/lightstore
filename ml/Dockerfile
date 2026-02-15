@@ -9,7 +9,17 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+ENV POETRY_VERSION=1.7.1 \
+    POETRY_HOME=/opt/poetry \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_IN_PROJECT=1 \
+    POETRY_VIRTUALENVS_CREATE=1
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="${POETRY_HOME}/bin:$PATH"
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash appuser
@@ -17,20 +27,21 @@ RUN useradd --create-home --shell /bin/bash appuser
 # Builder stage
 FROM base AS builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# Copy dependency files
+COPY pyproject.toml poetry.lock* ./
+
+# Install dependencies
+RUN poetry install --only main --no-root --no-ansi
 
 # Production stage
 FROM base AS production
 
-# Copy installed packages from builder
-COPY --from=builder /root/.local /home/appuser/.local
+WORKDIR /app
+
+# Copy virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
 
 # Copy application code
 COPY proto/ /app/proto/
@@ -40,9 +51,10 @@ COPY server/ /app/server/
 # COPY server/generated/ /app/server/generated/
 
 # Set environment
-ENV PATH=/home/appuser/.local/bin:$PATH
-ENV PYTHONPATH=/app/server
-ENV PYTHONUNBUFFERED=1
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app/server \
+    PYTHONUNBUFFERED=1 \
+    VIRTUAL_ENV=/app/.venv
 
 # Create models directory
 RUN mkdir -p /app/models && chown -R appuser:appuser /app

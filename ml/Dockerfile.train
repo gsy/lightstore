@@ -14,18 +14,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     git \
     wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python 3.11 as default
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
     && update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
 
-# Install PyTorch with CUDA support
+# Install Poetry
+ENV POETRY_VERSION=1.7.1 \
+    POETRY_HOME=/opt/poetry \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_IN_PROJECT=1 \
+    POETRY_VIRTUALENVS_CREATE=1
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="${POETRY_HOME}/bin:$PATH"
+
+# Copy dependency files
+COPY pyproject.toml poetry.lock* ./
+
+# Install PyTorch with CUDA support first
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
-# Install other dependencies
-COPY requirements-train.txt .
-RUN pip install --no-cache-dir -r requirements-train.txt
+# Install dependencies including train group
+RUN poetry install --with train --no-root --no-ansi
 
 # Copy training scripts and configs
 COPY training/ /workspace/training/
@@ -35,8 +47,10 @@ COPY scripts/ /workspace/scripts/
 RUN mkdir -p /workspace/data /workspace/models /workspace/runs
 
 # Set environment
-ENV PYTHONPATH=/workspace
-ENV PYTHONUNBUFFERED=1
+ENV PATH="/workspace/.venv/bin:$PATH" \
+    PYTHONPATH=/workspace \
+    PYTHONUNBUFFERED=1 \
+    VIRTUAL_ENV=/workspace/.venv
 
 # Default command: training script
 ENTRYPOINT ["python", "training/scripts/train.py"]

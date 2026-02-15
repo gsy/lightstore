@@ -5,7 +5,8 @@
       "Bash(go mod tidy:*)",
       "Bash(/usr/local/go/bin/go build:*)",
       "Bash(/Users/tiger/go/bin/go build:*)",
-      "Bash(/Users/tiger/go/bin/go test:*)"
+      "Bash(/Users/tiger/go/bin/go test:*)",
+      "Bash(poetry lock:*)"
     ]
   }
 }

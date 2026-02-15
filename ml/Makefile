@@ -3,11 +3,14 @@
 # Default target
 help:
 	@echo "ML Server Commands:"
-	@echo "  make setup          - Install dependencies"
+	@echo "  make setup          - Install runtime dependencies (Poetry)"
+	@echo "  make setup-dev      - Install with dev dependencies"
+	@echo "  make setup-train    - Install with training dependencies"
 	@echo "  make proto          - Generate protobuf code"
 	@echo "  make server         - Run ML server"
 	@echo "  make test           - Run tests"
 	@echo "  make lint           - Run linters"
+	@echo "  make format         - Format code"
 	@echo ""
 	@echo "Training Commands:"
 	@echo "  make train          - Train YOLOv8 model"
@@ -29,10 +32,16 @@ help:
 
 # Setup
 setup:
-	pip install -r requirements.txt
+	@command -v poetry >/dev/null 2>&1 || { echo "Poetry not found. Installing..."; curl -sSL https://install.python-poetry.org | python3 -; }
+	poetry install --only main
+
+setup-dev:
+	@command -v poetry >/dev/null 2>&1 || { echo "Poetry not found. Installing..."; curl -sSL https://install.python-poetry.org | python3 -; }
+	poetry install --with dev
 
 setup-train:
-	pip install -r requirements-train.txt
+	@command -v poetry >/dev/null 2>&1 || { echo "Poetry not found. Installing..."; curl -sSL https://install.python-poetry.org | python3 -; }
+	poetry install --with train
 
 # Protobuf generation
 PROTO_DIR := proto
@@ -41,7 +50,7 @@ GO_PROTO_OUT := ../server/internal/platform/mlclient/generated
 
 proto:
 	@mkdir -p $(PROTO_OUT)
-	python -m grpc_tools.protoc \
+	poetry run python -m grpc_tools.protoc \
 		-I$(PROTO_DIR) \
 		--python_out=$(PROTO_OUT) \
 		--grpc_python_out=$(PROTO_OUT) \
@@ -60,10 +69,10 @@ proto-go:
 
 # Server
 server: proto
-	PYTHONPATH=server python -m app.main
+	PYTHONPATH=server poetry run python -m app.main
 
 server-debug: proto
-	DEBUG=true LOG_LEVEL=DEBUG PYTHONPATH=server python -m app.main
+	DEBUG=true LOG_LEVEL=DEBUG PYTHONPATH=server poetry run python -m app.main
 
 # Training
 EPOCHS ?= 100
@@ -72,7 +81,7 @@ MODEL ?= yolov8s.pt
 DATA ?= training/configs/beverages.yaml
 
 train:
-	python training/scripts/train.py \
+	poetry run python training/scripts/train.py \
 		--model $(MODEL) \
 		--data $(DATA) \
 		--epochs $(EPOCHS) \
@@ -84,14 +93,14 @@ train-resume:
 		echo "Error: CHECKPOINT not set. Usage: make train-resume CHECKPOINT=runs/train/exp/weights/last.pt"; \
 		exit 1; \
 	fi
-	python training/scripts/train.py --resume $(CHECKPOINT)
+	poetry run python training/scripts/train.py --resume $(CHECKPOINT)
 
 validate:
 	@if [ -z "$(MODEL_PATH)" ]; then \
 		echo "Error: MODEL_PATH not set. Usage: make validate MODEL_PATH=runs/train/exp/weights/best.pt"; \
 		exit 1; \
 	fi
-	python training/scripts/validate.py \
+	poetry run python training/scripts/validate.py \
 		--model $(MODEL_PATH) \
 		--data $(DATA) \
 		--plots
@@ -101,14 +110,14 @@ export:
 		echo "Error: MODEL_PATH not set. Usage: make export MODEL_PATH=runs/train/exp/weights/best.pt"; \
 		exit 1; \
 	fi
-	python training/scripts/export.py \
+	poetry run python training/scripts/export.py \
 		--model $(MODEL_PATH) \
 		--output-dir models \
 		--format pytorch
 
 # Dataset
 prepare-data:
-	python scripts/prepare_dataset.py \
+	poetry run python scripts/prepare_dataset.py \
 		--images-dir data/raw \
 		--annotations-dir data/annotations \
 		--output-dir data/dataset
@@ -121,27 +130,27 @@ cvat-export:
 		echo "Error: CVAT_API_TOKEN not set"; \
 		exit 1; \
 	fi
-	python scripts/cvat_export.py \
+	poetry run python scripts/cvat_export.py \
 		--project-id $(CVAT_PROJECT_ID) \
 		--output-dir data/annotations
 
 sync-classes:
-	python scripts/sync_classes.py \
+	poetry run python scripts/sync_classes.py \
 		--update-config \
 		--update-server
 
 # Testing
 test:
-	pytest server/tests/ -v --cov=server/app
+	poetry run pytest server/tests/ -v --cov=server/app
 
 lint:
-	ruff check server/ training/ scripts/
-	black --check server/ training/ scripts/
-	mypy server/app/
+	poetry run ruff check server/ training/ scripts/
+	poetry run black --check server/ training/ scripts/
+	poetry run mypy server/app/
 
 format:
-	ruff check --fix server/ training/ scripts/
-	black server/ training/ scripts/
+	poetry run ruff check --fix server/ training/ scripts/
+	poetry run black server/ training/ scripts/
 
 # Docker
 DOCKER_IMAGE := vending-ml-server
