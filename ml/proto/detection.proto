@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package detection;
 
-option go_package = "github.com/tigerwill90/vending-machine/ml/proto;detectionpb";
+option go_package = "github.com/gsy/lightstore/ml/proto;detectionpb";
 
 // DetectionService provides beverage detection capabilities
 service DetectionService {

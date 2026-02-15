@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/tigerwill90/vending-machine/server/internal/platform/mlclient/generated"
+	pb "github.com/gsy/lightstore/server/internal/platform/mlclient/generated"
 )
 
 // Detection represents a single detected object.
