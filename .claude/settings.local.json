@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(/usr/local/go/bin/go build:*)",
+      "Bash(/Users/tiger/go/bin/go build:*)",
+      "Bash(/Users/tiger/go/bin/go test:*)"
+    ]
+  }
+}

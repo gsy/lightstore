@@ -1,0 +1,43 @@
+# GPU Training Image for YOLOv8
+# Based on NVIDIA CUDA for GPU acceleration
+
+FROM nvidia/cuda:12.1-cudnn8-runtime-ubuntu22.04
+
+WORKDIR /workspace
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    git \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Python 3.11 as default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+
+# Install PyTorch with CUDA support
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# Install other dependencies
+COPY requirements-train.txt .
+RUN pip install --no-cache-dir -r requirements-train.txt
+
+# Copy training scripts and configs
+COPY training/ /workspace/training/
+COPY scripts/ /workspace/scripts/
+
+# Create directories
+RUN mkdir -p /workspace/data /workspace/models /workspace/runs
+
+# Set environment
+ENV PYTHONPATH=/workspace
+ENV PYTHONUNBUFFERED=1
+
+# Default command: training script
+ENTRYPOINT ["python", "training/scripts/train.py"]
+CMD ["--help"]

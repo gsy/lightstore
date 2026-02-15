@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vending
+      POSTGRES_PASSWORD: vending
+      POSTGRES_DB: vending
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vending"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://vending:vending@postgres:5432/vending?sslmode=disable"
+      ML_SERVICE_URL: "http://ml-service:8081"
+      JWT_SECRET: "dev-secret"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ML service placeholder (to be implemented)
+  # ml-service:
+  #   build:
+  #     context: ./ml-service
+  #   ports:
+  #     - "8081:8081"
+
+volumes:
+  postgres_data:

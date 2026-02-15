@@ -1,0 +1,112 @@
+name: BDD Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  bdd-tests:
+    name: Run BDD Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: vending
+          POSTGRES_PASSWORD: vending
+          POSTGRES_DB: vending_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: server/go.sum
+
+      - name: Install dependencies
+        working-directory: ./server
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Run BDD tests
+        working-directory: ./server
+        run: go test -v ./test/...
+        env:
+          DATABASE_URL: postgres://vending:vending@localhost:5432/vending_test?sslmode=disable
+
+      - name: Generate test reports
+        if: always()
+        working-directory: ./server
+        run: |
+          go test ./test/... -godog.format=junit > test-report.xml || true
+          go test ./test/... -godog.format=cucumber > test-report.json || true
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bdd-test-reports
+          path: |
+            server/test-report.xml
+            server/test-report.json
+          retention-days: 30
+
+      - name: Publish test results
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: server/test-report.xml
+          check_name: BDD Test Results
+
+  bdd-smoke-tests:
+    name: Run Smoke Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: vending
+          POSTGRES_PASSWORD: vending
+          POSTGRES_DB: vending_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: server/go.sum
+
+      - name: Install dependencies
+        working-directory: ./server
+        run: go mod download
+
+      - name: Run smoke tests
+        working-directory: ./server
+        run: go test -v ./test/... -godog.tags="@smoke"
+        env:
+          DATABASE_URL: postgres://vending:vending@localhost:5432/vending_test?sslmode=disable

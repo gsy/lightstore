@@ -1,0 +1,58 @@
+version: "3.8"
+
+services:
+  ml-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vending-ml-server
+    ports:
+      - "50051:50051"
+    volumes:
+      - ./models:/app/models:ro
+    environment:
+      - GRPC_HOST=0.0.0.0
+      - GRPC_PORT=50051
+      - LOG_LEVEL=INFO
+      - MODEL_DIR=/app/models
+      - MODEL_NAME=best.pt
+      - MODEL_WATCH_INTERVAL=5.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc; from app.generated import detection_pb2_grpc, detection_pb2; channel = grpc.insecure_channel('localhost:50051'); stub = detection_pb2_grpc.DetectionServiceStub(channel); stub.HealthCheck(detection_pb2.Empty(), timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # GPU-enabled version (use with: docker compose --profile gpu up)
+  ml-server-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vending-ml-server-gpu
+    profiles:
+      - gpu
+    ports:
+      - "50051:50051"
+    volumes:
+      - ./models:/app/models:ro
+    environment:
+      - GRPC_HOST=0.0.0.0
+      - GRPC_PORT=50051
+      - LOG_LEVEL=INFO
+      - MODEL_DIR=/app/models
+      - MODEL_NAME=best.pt
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+networks:
+  default:
+    name: vending-network
+    external: true

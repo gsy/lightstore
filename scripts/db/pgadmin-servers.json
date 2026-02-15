@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Vending Machine DB",
+      "Group": "Development",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "vending",
+      "Username": "vending",
+      "SSLMode": "prefer",
+      "PassFile": "/pgadmin4/pgpass"
+    }
+  }
+}
