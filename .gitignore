@@ -1,0 +1,40 @@
+.DS_Store
+.idea
+*.log
+tmp/
+
+bin/**
+
+# Environment (keep .env.example)
+.env
+.env.local
+.env.*.local
+
+# ML
+ml/data/
+ml/models/*.pt
+ml/models/*.onnx
+ml/runs/
+ml/server/app/generated/*.py
+!ml/server/app/generated/__init__.py
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Go
+server/tmp/
+server/internal/platform/mlclient/generated/*.go
+
+# IDE
+.vscode/
+*.swp
+*.swo
+
+# Test reports
+*.xml
+test-report.*
